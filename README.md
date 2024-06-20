@@ -1,1 +1,421 @@
-# database
+# Percona Xtradb Cluster and Proxysql
+
+192.168.2.78 dbnode1.db   node1
+192.168.2.233 dbnode2.db node2
+192.168.2.167 dbnode3.db node3
+192.168.2.232 dbnode4.db proxysql
+
+Percona xtradb cluster 8
+ProxySQL version 2.5.4-percona-1.1
+
+Install percona xtradb cluster 8 in node1, node2, node3
+
+# yum install https://repo.percona.com/yum/percona-release-latest.noarch.rpm
+# percona-release enable-only pxc-80 release
+# percona-release enable tools release
+# yum module disable mysql -y
+# yum install percona-xtradb-cluster
+
+Then, start service mysql in node1, node2 and node3
+
+# service mysql start
+Find temporary password in mysqld.log
+# grep 'temporary password' /var/log/mysqld.log
+Login mysql with temporary password
+# mysql -u root -p
+
+After login, you must reset root password with your own password.
+
+MySQL> ALTER USER 'root'@'localhost' IDENTIFIED BY 'Percona@pxc8';
+
+Then, Verify wsrep parameters in the database.
+
+MySQL> show variables like '%wsrep%';
+
+Before configure node1 for PXC Write-Set Replication (WSP), please stop mysql services.
+
+# service mysql stop
+
+Update file my.cnf with custom values according to your requirement.
+
+# vim /etc/my.cnf
+
+
+[mysqld]
+server-id=1
+datadir=/var/lib/mysql
+socket=/var/lib/mysql/mysql.sock
+log-error=/var/log/mysqld.log
+pid-file=/var/run/mysqld/mysqld.pid
+
+# Binary log expiration period is 604800 seconds, which equals 7 days
+binlog_expire_logs_seconds=604800
+
+######## wsrep ###############
+# Path to Galera library
+wsrep_provider=/usr/lib64/galera4/libgalera_smm.so
+
+# Cluster connection URL contains IPs of nodes
+#If no IP is found, this implies that a new cluster needs to be created,
+#in order to do that you need to bootstrap this node
+wsrep_cluster_address=gcomm://192.168.2.78,192.168.2.233,192.168.2.167
+
+# In order for Galera to work correctly binlog format should be ROW
+binlog_format=ROW
+
+# Slave thread to use
+wsrep_slave_threads=8
+
+wsrep_log_conflicts
+
+# This changes how InnoDB autoincrement locks are managed and is a requirement for Galera
+innodb_autoinc_lock_mode=2
+
+# Node IP address
+wsrep_node_address=192.168.2.78
+# Cluster name
+wsrep_cluster_name=pxc-cluster
+
+#If wsrep_node_name is not specified,  then system hostname will be used
+wsrep_node_name=dbnode1.db
+
+#pxc_strict_mode allowed values: DISABLED,PERMISSIVE,ENFORCING,MASTER
+pxc_strict_mode=PERMISSIVE
+pxc_encrypt_cluster_traffic=OFF
+# SST method
+wsrep_sst_method=xtrabackup-v2
+
+
+Start mysql in node1 and bootstrap the cluster
+
+# systemctl start mysql@bootstrap.service
+# systemctl status mysql@bootstrap.service
+# tail -f /var/log/mysqld.log
+
+Configure percona xtradb in node2 and node3
+
+Before configure please stop mysql service in node2
+
+# service mysql stop
+
+Then edit value in file my.cnf
+
+# vim /etc/my.cnf
+
+
+[mysqld]
+server-id=1
+datadir=/var/lib/mysql
+socket=/var/lib/mysql/mysql.sock
+log-error=/var/log/mysqld.log
+pid-file=/var/run/mysqld/mysqld.pid
+
+# Binary log expiration period is 604800 seconds, which equals 7 days
+binlog_expire_logs_seconds=604800
+
+######## wsrep ###############
+# Path to Galera library
+wsrep_provider=/usr/lib64/galera4/libgalera_smm.so
+
+# Cluster connection URL contains IPs of nodes
+#If no IP is found, this implies that a new cluster needs to be created,
+#in order to do that you need to bootstrap this node
+wsrep_cluster_address=gcomm://192.168.2.78,192.168.2.233,192.168.2.167
+
+# In order for Galera to work correctly binlog format should be ROW
+binlog_format=ROW
+
+# Slave thread to use
+wsrep_slave_threads=8
+
+wsrep_log_conflicts
+
+# This changes how InnoDB autoincrement locks are managed and is a requirement for Galera
+innodb_autoinc_lock_mode=2
+
+# Node IP address
+wsrep_node_address=192.168.2.233
+# Cluster name
+wsrep_cluster_name=pxc-cluster
+
+#If wsrep_node_name is not specified,  then system hostname will be used
+wsrep_node_name=dbnode2.db
+
+#pxc_strict_mode allowed values: DISABLED,PERMISSIVE,ENFORCING,MASTER
+pxc_strict_mode=PERMISSIVE
+pxc_encrypt_cluster_traffic=OFF
+# SST method
+wsrep_sst_method=xtrabackup-v2
+
+After finish configure, start service mysql in node2
+# service mysql start
+
+Then config in node3
+
+Please stop service mysql in node3
+
+# service mysql stop
+
+# vim /etc/my.cnf
+
+[mysqld]
+server-id=1
+datadir=/var/lib/mysql
+socket=/var/lib/mysql/mysql.sock
+log-error=/var/log/mysqld.log
+pid-file=/var/run/mysqld/mysqld.pid
+
+
+# Binary log expiration period is 604800 seconds, which equals 7 days
+binlog_expire_logs_seconds=604800
+
+######## wsrep ###############
+# Path to Galera library
+wsrep_provider=/usr/lib64/galera4/libgalera_smm.so
+
+# Cluster connection URL contains IPs of nodes
+#If no IP is found, this implies that a new cluster needs to be created,
+#in order to do that you need to bootstrap this node
+wsrep_cluster_address=gcomm://192.168.2.78,192.168.2.233,192.168.2.167
+
+# In order for Galera to work correctly binlog format should be ROW
+binlog_format=ROW
+
+# Slave thread to use
+wsrep_slave_threads=8
+
+wsrep_log_conflicts
+
+# This changes how InnoDB autoincrement locks are managed and is a requirement for Galera
+innodb_autoinc_lock_mode=2
+
+# Node IP address
+wsrep_node_address=192.168.2.167
+# Cluster name
+wsrep_cluster_name=pxc-cluster
+
+#If wsrep_node_name is not specified,  then system hostname will be used
+wsrep_node_name=dbnode3.db
+
+#pxc_strict_mode allowed values: DISABLED,PERMISSIVE,ENFORCING,MASTER
+pxc_strict_mode=PERMISSIVE
+pxc_encrypt_cluster_traffic=OFF
+# SST method
+wsrep_sst_method=xtrabackup-v2
+
+After finish configure, start service mysql in node3
+# systemctl start mysql
+
+Then, you can check node for cluster in all node.
+
+mysql> select * from mysql.wsrep_cluster_members;
++--------------------------------------+--------------------------------------+------------+-----------------------+
+| node_uuid                            | cluster_uuid                         | node_name  | node_incoming_address |
++--------------------------------------+--------------------------------------+------------+-----------------------+
+| 1076da39-4004-11ee-a351-47dfe24e260f | d9d7a65d-3bf0-11ee-a820-1f1aa17f8f5b | dbnode2.db | 192.168.2.233:3306    |
+| 35a902f1-4004-11ee-be00-8696f8801145 | d9d7a65d-3bf0-11ee-a820-1f1aa17f8f5b | dbnode3.db | 192.168.2.167:3306    |
+| c9f718b2-40a7-11ee-a409-aae34ed44b98 | d9d7a65d-3bf0-11ee-a820-1f1aa17f8f5b | dbnode1.db | 192.168.2.78:3306     |
++--------------------------------------+--------------------------------------+------------+-----------------------+
+3 rows in set (0.00 sec)
+
+Proxysql setup
+
+Install proxysql in node4
+
+# yum install proxysql2
+# yum install percona-xtradb-cluster-client
+
+Check file configuration in proxysql make sure file configuration available.
+
+# cat /etc/proxysql.cnf
+
+# proxysql --version
+
+Start service proxysql in node4
+
+# service proxysql start
+
+# service proxysql status
+
+Check log in proxysql
+
+# tail -f /var/lib/proxysql/proxysql.log
+
+First step connect to proxysql administration with default password ‘admin’
+
+# mysql -u admin -padmin -h 127.0.0.1 -P6032 --prompt='ProxySQLAdmin> '
+
+Then, if you change proxysql administration password 
+
+ProxySQLAdmin> UPDATE global_variables SET variable_value='admin:password' WHERE variable_name='admin-admin_credentials';
+
+To copy the memory setting to the runtime
+
+ProxySQLAdmin> LOAD ADMIN VARIABLES TO RUNTIME;
+
+Save variable to disk to make them persist
+
+ProxySQLAdmin> SAVE ADMIN VARIABLES TO DISK;
+
+Verify that the configuration is empty by checking that there are no entries in mysql_servers, mysql_users, mysql_replication_hostgroups and mysql_query_rules table
+
+ProxySQLAdmin> SELECT * FROM mysql_servers;
+
+ProxySQLAdmin> SELECT * FROM mysql_users;
+
+ProxySQLAdmin> SELECT * from mysql_replication_hostgroups;
+
+ProxySQLAdmin> SELECT * from mysql_query_rules;
+
+Next, add backend database nodes to the proxysql server pool
+
+Insert 3 node percona xtradb cluster to the mysql_servers table.
+
+
+ProxySQLAdmin> INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('192.168.2.78',10,3306,1000);
+
+ProxySQLAdmin> INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('192.168.2.233',10,3306,1000);
+
+ProxySQLAdmin> INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('192.168.2.167',10,3306,1000);
+
+ProxySQLAdmin> INSERT INTO mysql_galera_hostgroups (writer_hostgroup, backup_writer_hostgroup, reader_hostgroup, offline_hostgroup, active, max_writers, writer_is_also_reader,max_transactions_behind) VALUES (10, 12, 11, 13, 1, 1, 2, 100);
+
+Activate current in memory mysql server and replication hostgroup configuration
+
+ProxySQLAdmin> LOAD MYSQL SERVERS TO RUNTIME;
+
+Save the current in memory mysql server and replication hostgroup configuration to disk
+
+ProxySQLAdmin> SAVE MYSQL SERVERS TO DISK;
+
+next configure check hostgroup, hostname and status server
+
+ProxySQLAdmin> SELECT hostgroup_id, hostname, status FROM runtime_mysql_servers;
+
+Configure mysql_users in proxysql 
+
+After configure mysql server, next step you will configure mysql users with specific username, password and default hostgroup for basic configuration
+
+
+ProxySQLAdmin> INSERT INTO mysql_users (username,password,default_hostgroup) VALUES ('sbuser','sbpass',10);
+
+Active current in mysql user configuration
+
+ProxySQLAdmin> LOAD MYSQL USERS TO RUNTIME;
+
+Save the current in memory mysql user configuration to disk
+
+ProxySQLAdmin> SAVE MYSQL USERS TO DISK;
+
+Create the user in mysql connect to the primary and execute query :
+
+ProxySQLAdmin> UPDATE global_variables SET variable_value='monitor' WHERE variable_name in ('mysql-monitor_username','mysql-monitor_password');
+
+
+On percona xtradb cluster add monitoring user and grant user : 
+
+mysql> CREATE USER 'monitor'@'%' IDENTIFIED BY 'monitor';
+mysql> GRANT USAGE ON *.* TO 'monitor'@'%';
+
+mysql> select user, host, super_priv, password_expired, plugin from mysql.user;
+
+
+Create database sbtest and add grant user sbuser in mysql
+
+
+mysql> CREATE DATABASE sbtest;
+mysql> CREATE USER 'sbuser'@'192.168.2.232' IDENTIFIED WITH mysql_native_password BY 'sbpass';
+mysql> GRANT ALL ON *.* TO 'sbuser'@'192.168.2.232';
+
+Configuring monitoring in proxysql 
+
+ProxySQLAdmin> UPDATE global_variables SET variable_value='monitor' WHERE variable_name in ('mysql-monitor_username','mysql-monitor_password');
+
+ProxySQLAdmin> UPDATE GLOBAL_VARIABLES SET variable_value='8.0' WHERE variable_name='mysql-server_version';
+
+ProxySQLAdmin> UPDATE global_variables SET variable_value='2000' WHERE variable_name IN ('mysql-monitor_connect_interval','mysql-monitor_ping_interval','mysql-monitor_read_only_interval');
+
+ProxySQLAdmin> UPDATE GLOBAL_VARIABLES SET variable_value='true' WHERE variable_name='admin-web_enabled';
+
+ProxySQLAdmin> SELECT * FROM global_variables WHERE variable_name LIKE 'mysql-monitor_%';
+
+
+Active current in memory mysql variable configuration
+
+ProxySQLAdmin> LOAD MYSQL VARIABLES TO RUNTIME;
+
+Save the current in memory mysql variable configuration to disk
+
+ProxySQLAdmin> SAVE MYSQL VARIABLES TO DISK;
+
+After that configuration is active verify the status mysql backend in the monitor database proxysql.
+
+
+ProxySQLAdmin> SELECT * FROM monitor.mysql_server_connect_log ORDER BY time_start_us DESC limit 10;
+
+ProxySQLAdmin> SELECT * FROM monitor.mysql_server_ping_log ORDER BY time_start_us DESC limit 10;
+
+In mysql 8.0 doesnt support caching_sha2_password
+
+ProxySQLAdmin> select * from global_variables where variable_name like '%hash_passwords%';
++----------------------+----------------+
+| variable_name        | variable_value |
++----------------------+----------------+
+| admin-hash_passwords | true           |
++----------------------+----------------+
+1 row in set (0.01 sec)
+
+Update the variable admin-hash_password
+
+ProxySQLAdmin> update global_variables set variable_value='false' where variable_name='admin-hash_passwords';
+
+ProxySQLAdmin> load admin variables to runtime; save admin variables to disk;
+
+ProxySQLAdmin> load mysql users to runtime; save mysql users to disk;
+
+Once configuration active please verify the status mysql backend in monitor database tables in proxysql 
+
+ProxySQLAdmin> SELECT * FROM monitor.mysql_server_connect_log ORDER BY time_start_us DESC limit 10;
++---------------+------+------------------+-------------------------+---------------+
+| hostname      | port | time_start_us    | connect_success_time_us | connect_error |
++---------------+------+------------------+-------------------------+---------------+
+| 192.168.2.233 | 3306 | 1695972747381302 | 3201                    | NULL          |
+| 192.168.2.167 | 3306 | 1695972747355282 | 3087                    | NULL          |
+| 192.168.2.78  | 3306 | 1695972747329345 | 3257                    | NULL          |
+| 192.168.2.167 | 3306 | 1695972745375191 | 3018                    | NULL          |
+| 192.168.2.78  | 3306 | 1695972745351649 | 2302                    | NULL          |
+| 192.168.2.233 | 3306 | 1695972745328067 | 2552                    | NULL          |
+| 192.168.2.78  | 3306 | 1695972743372913 | 3264                    | NULL          |
+| 192.168.2.233 | 3306 | 1695972743349814 | 3679                    | NULL          |
+| 192.168.2.167 | 3306 | 1695972743327035 | 3252                    | NULL          |
+| 192.168.2.167 | 3306 | 1695972741367702 | 1653                    | NULL          |
++---------------+------+------------------+-------------------------+---------------+
+
+ProxySQLAdmin> SELECT * FROM monitor.mysql_server_ping_log ORDER BY time_start_us DESC limit 10;
++---------------+------+------------------+----------------------+------------+
+| hostname      | port | time_start_us    | ping_success_time_us | ping_error |
++---------------+------+------------------+----------------------+------------+
+| 192.168.2.233 | 3306 | 1695972753337036 | 712                  | NULL       |
+| 192.168.2.78  | 3306 | 1695972753336971 | 667                  | NULL       |
+| 192.168.2.167 | 3306 | 1695972753336757 | 780                  | NULL       |
+| 192.168.2.167 | 3306 | 1695972751335770 | 417                  | NULL       |
+| 192.168.2.78  | 3306 | 1695972751335676 | 428                  | NULL       |
+| 192.168.2.233 | 3306 | 1695972751335567 | 660                  | NULL       |
+| 192.168.2.78  | 3306 | 1695972749335510 | 664                  | NULL       |
+| 192.168.2.233 | 3306 | 1695972749335434 | 618                  | NULL       |
+| 192.168.2.167 | 3306 | 1695972749335133 | 735                  | NULL       |
+| 192.168.2.78  | 3306 | 1695972747333963 | 620                  | NULL       |
++---------------+------+------------------+----------------------+------------+
+
+Please running command to access mysql from proxysql
+
+# mysql -usbuser -psbpass -h 127.0.0.1 -P6033 --prompt='ProxySQLClient> '
+
+# mysql -usbuser -psbpass -h 127.0.0.1 -P6033 --prompt='ProxySQLClient> ' -e 'select @@hostname,@@port';
+
+
+Source : 
+
+https://satya-dba.blogspot.com/2021/08/installing-percona-xtradb-cluster.html
+
+https://satya-dba.blogspot.com/2021/09/installing-proxysql-configuration.html
