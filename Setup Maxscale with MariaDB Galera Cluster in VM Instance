@@ -1,0 +1,217 @@
+#Setup Maxscale with MariaDB Galera Cluster in VM Instance
+
+VM Instance
+
+Dbnode1 192.168.2.78   (node1,maxscale)
+Dbnode2 192.168.2.233 (node2)
+Dbnode3 192.168.2.167 (node3)
+Dbnode4 192.168.2.232 (node4)
+
+First download package installer mariadb from official website and copy to servers.
+
+Wget https://dlm.mariadb.com/3269368/MariaDB/mariadb-10.10.5/yum/centos/mariadb-10.10.5-rhel-7-x86_64-rpms.tar
+
+tar -xf mariadb-10.10.5-rhel-7-x86_64-rpms.tar.gz
+
+yum install epel-release
+yum install Judy-devel
+yum install *.rpm
+
+Next enable service mariadb
+
+systemctl enable mariadb
+
+Before start service mariadb, you must config galera in /etc/my.cnf.d/server.cnf
+
+Turn on replication and setup library
+
+[galera]
+# Mandatory settings
+wsrep_on=ON
+wsrep_provider=/usr/lib64/galera-4/libgalera_smm.so
+
+Define Cluster name and list of member address
+
+wsrep_cluster_name="dbcluster"
+wsrep_cluster_address="gcomm://192.168.2.78,192.168.2.167,192.168.2.232"
+
+Identify member name of this cluster
+
+wsrep_node_name="mariadbmain"
+wsrep_node_address="192.168.2.78"
+Define primary node as the source for the initial copy of data
+
+wsrep_sst_method=rsync
+wsrep_sst_donor="mariadbmain"
+
+Enable global transaction ID
+
+wsrep_gtid_mode=ON
+wsrep_gtid_domain_id=1
+
+Binary log and storage engine configuration
+
+binlog_format=ROW
+default-storage-engine=InnoDB
+innodb_autoinc_lock_mode=2
+log_slave_updates=ON
+log_bin=galera-bin
+
+
+Connect to the other nodes and then change configuration 
+
+[root@dbnode2 ~]# vim /etc/my.cnf.d/server.cnf
+
+wsrep_node_name="dbnode2"
+wsrep_node_address="192.168.2.233"
+
+
+[root@dbnode3 ~]# vim /etc/my.cnf.d/server.cnf
+
+wsrep_node_name="dbnode3"
+wsrep_node_address="192.168.2.167"
+
+[root@dbnode4 ~]# vim /etc/my.cnf.d/server.cnf
+
+wsrep_node_name="dbnode4"
+wsrep_node_address="192.168.2.232"
+
+
+
+
+
+
+
+
+Then start galera cluster in primary node dbnode1 and validate how many member are register in the cluster
+
+[root@dbnode1 ~]# Galera_new_cluster
+
+[root@dbnode1 ~]# mysql -e "SHOW STATUS LIKE 'wsrep_cluster_size'"
++--------------------+-------+
+| Variable_name      | Value |
++--------------------+-------+
+| wsrep_cluster_size | 1     |
++--------------------+-------+
+
+Next start service mariadb in the other node
+
+[root@dbnode2 ~]# systemctl start mariadb
+
+[root@dbnode3 ~]# systemctl start mariadb
+
+[root@dbnode4 ~]# systemctl start mariadb
+
+Check again how many member are register in cluster in master node
+
+[root@dbnode1 ~]#  mysql -e "SHOW STATUS LIKE 'wsrep_cluster_size'"
++--------------------+-------+
+| Variable_name      | Value |
++--------------------+-------+
+| wsrep_cluster_size | 4     |
++--------------------+-------+
+
+Next step setup maxscale in dbnode1
+
+[root@dbnode1 ~]# wget https://dlm.mariadb.com/3220056/MaxScale/2.5.26/yum/centos/7/x86_64/maxscale-2.5.26-1.rhel.7.x86_64.rpm
+
+[root@dbnode1 ~]# yum install maxscale-2.5.26-1.rhel.7.x86_64.rpm
+
+Then, before start service maxscale, you must allow access for maxscale in mysql
+
+First connect database in master dbnode and create user maxmonitor in this database.
+
+GRANT SELECT ON `mysql`.* TO `maxmonitor`@`%`IDENTIFIED BY '********';
+GRANT REPLICATION CLIENT, SHOW DATABASES ON *.* TO `maxmonitor`@`%`;
+flush privileges ;
+Second, create a new configuration file with the following parameters:
+
+[root@dbnode1 ~]# vim /etc/maxscale.cnf
+
+Define the host and port of the server in replications
+
+[Db-Node0]
+type=server
+address=dbnode1.db
+port=3306
+protocol=MariaDBBackend
+
+[Db-Node1]
+type=server
+address=dbnode2.db
+port=3306
+protocol=MariaDBBackend
+
+[Db-Node2]
+type=server
+address=dbnode3.db
+port=3306
+protocol=MariaDBBackend
+
+[Db-Node3]
+type=server
+address=dbnode4.db
+port=3306
+protocol=MariaDBBackend
+
+Define maxscale monitor, using galeramon as module galera replication, and user dan password for monitor user.
+
+[Db-Monitor]
+type=monitor
+module=galeramon
+servers=Db-Node0,Db-Node1,Db-Node2,Db-Node3
+#servers=Db-Node0,Db-Node2
+user=maxmonitor
+password=maxmonitor1234
+monitor_interval=2000
+
+Define the service read write split with other nodes listening on port 4006
+
+[RW-Service]
+type=service
+router=readwritesplit
+servers=Db-Node0,Db-Node1,Db-Node2,Db-Node3
+#servers=Db-Node0,Db-Node2
+user=maxmonitor
+password=maxmonitor1234
+
+[RW-Listener]
+type=listener
+service=RW-Service
+protocol=MariaDBClient
+port=4006
+
+Define the service read with other nodes and listening on port 4008
+
+[RO-Service]
+type=service
+router=readconnroute
+servers=Db-Node2
+user=maxmonitor
+password=maxmonitor1234
+router_options=slave
+
+[RO-Listener]
+type=listener
+service=RO-Service
+protocol=MariaDBClient
+port=4008
+
+Then, start service maxscale 
+
+[root@dbnode1 ~]# systemctl start maxscale
+
+Validate the services are running and listen by issuing command
+
+[root@dbnode1 ~]# maxctrl list servers
+┌──────────┬────────────┬──────┬─────────────┬─────────────────────────┬─────────┐
+│ Server   │ Address    │ Port │ Connections │ State                   │ GTID    │
+├──────────┼────────────┼──────┼─────────────┼─────────────────────────┼─────────┤
+│ Db-Node0 │ dbnode1.db │ 3306 │ 0           │ Master, Synced, Running │ 1-1-344 │
+├──────────┼────────────┼──────┼─────────────┼─────────────────────────┼─────────┤
+│ Db-Node1 │ dbnode2.db │ 3306 │ 0           │ Slave, Synced, Running  │ 1-1-344 │
+├──────────┼────────────┼──────┼─────────────┼─────────────────────────┼─────────┤
+│ Db-Node2 │ dbnode3.db │ 3306 │ 0           │ Slave, Synced, Running  │ 1-1-344 │
+├──────────┼────────────┼──────┼─────────────┼─────────────────────────┼─────────┤
+│ Db-Node3 │ dbnode4.db │ 3306 │ 0           │ Slave, Synced, Running  │ 1-1-344 │
+└──────────┴────────────┴──────┴─────────────┴─────────────────────────┴─────────┘
